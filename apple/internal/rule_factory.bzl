@@ -133,22 +133,10 @@ _COMMON_BINARY_RULE_ATTRS = dicts.add(
             cfg = apple_common.multi_arch_split,
             default = Label("@bazel_tools//tools/objc:dummy_lib"),
         ),
-        "_googlemac_proto_compiler": attr.label(
-            cfg = "host",
-            default = Label("@bazel_tools//tools/objc:protobuf_compiler_wrapper"),
-        ),
-        "_googlemac_proto_compiler_support": attr.label(
-            cfg = "host",
-            default = Label("@bazel_tools//tools/objc:protobuf_compiler_support"),
-        ),
         # Needed for the J2ObjC processing code that already exists in the implementation of
         # apple_common.link_multi_arch_binary.
         "_j2objc_dead_code_pruner": attr.label(
             default = Label("@bazel_tools//tools/objc:j2objc_dead_code_pruner"),
-        ),
-        "_protobuf_well_known_types": attr.label(
-            cfg = "host",
-            default = Label("@bazel_tools//tools/objc:protobuf_well_known_types"),
         ),
         # xcrunwrapper is no longer used by rules_apple, but the underlying implementation of
         # apple_common.link_multi_arch_binary requires this attribute.
@@ -200,7 +188,6 @@ AppleTestRunnerInfo provider.
 
 def _common_binary_linking_attrs(default_binary_type, deps_cfg, product_type):
     deps_aspects = [
-        apple_common.objc_proto_aspect,
         swift_usage_aspect,
     ]
 
@@ -230,7 +217,6 @@ Do not change its value.
     """,
             ),
             "bundle_loader": attr.label(
-                aspects = [apple_common.objc_proto_aspect],
                 providers = [[apple_common.AppleExecutableBinary]],
                 doc = """
 This attribute is public as an implementation detail while we migrate the architecture of the rules.
@@ -238,11 +224,24 @@ Do not change its value.
     """,
             ),
             "dylibs": attr.label_list(
-                aspects = [apple_common.objc_proto_aspect],
                 doc = """
 This attribute is public as an implementation detail while we migrate the architecture of the rules.
 Do not change its value.
     """,
+            ),
+            "exported_symbols_lists": attr.label_list(
+                allow_files = True,
+                doc = """
+A list of targets containing exported symbols lists files for the linker to control symbol
+resolution.
+
+Each file is expected to have a list of global symbol names that will remain as global symbols in
+the compiled binary owned by this framework. All other global symbols will be treated as if they
+were marked as `__private_extern__` (aka `visibility=hidden`) and will not be global in the output
+file.
+
+See the man page documentation for `ld(1)` on macOS for more details.
+""",
             ),
             "codesign_inputs": attr.label_list(
                 doc = """
@@ -453,7 +452,7 @@ in the list.
         attrs.append({
             "settings_bundle": attr.label(
                 aspects = [apple_resource_aspect],
-                providers = [["objc"], [AppleResourceBundleInfo]],
+                providers = [["objc"], [AppleResourceBundleInfo], [apple_common.Objc]],
                 doc = """
 A resource bundle (e.g. `apple_bundle_import`) target that contains the files that make up the
 application's settings bundle. These files will be copied into the root of the final application
@@ -616,6 +615,15 @@ the application bundle.
                 allow_single_file = True,
                 default = Label("@build_bazel_rules_apple//apple/internal/templates:ios_sim_template"),
             ),
+            "include_symbols_in_bundle": attr.bool(
+                default = False,
+                doc = """
+    If true and --output_groups=+dsyms is specified, generates `$UUID.symbols`
+    files from all `{binary: .dSYM, ...}` pairs for the application and its
+    dependencies, then packages them under the `Symbols/` directory in the
+    final application bundle.
+    """,
+            ),
         })
     elif rule_descriptor.product_type == apple_product_type.app_clip:
         attrs.append({
@@ -744,6 +752,15 @@ set, then the default extension is determined by the application's product_type.
                 cfg = "host",
                 allow_single_file = True,
                 default = Label("@build_bazel_rules_apple//apple/internal/templates:macos_template"),
+            ),
+            "include_symbols_in_bundle": attr.bool(
+                default = False,
+                doc = """
+    If true and --output_groups=+dsyms is specified, generates `$UUID.symbols`
+    files from all `{binary: .dSYM, ...}` pairs for the application and its
+    dependencies, then packages them under the `Symbols/` directory in the
+    final application bundle.
+    """,
             ),
         })
 
