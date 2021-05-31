@@ -130,6 +130,62 @@ def _get_identities_from_provisioning_profile(mpf):
       identity = identity.data
     yield _certificate_fingerprint(identity)
 
+def _find_smart_card_identities(identity=None):
+  """Finds smartcard identitites on the current system."""
+  ids = []
+  _, output, _ = execute.execute_and_filter_output([
+      "security",
+      "export-smartcard",
+      "-t",
+      "identities"
+  ], raise_on_failure=True)
+
+  output_by_identity = output.split("==== identity")
+  label_sha1_map = {}
+
+  for output in output_by_identity:
+    lines = output.split('\n')
+
+    # Extract sha1 from line with format:
+    #
+    #    sha1 : <xx xx xx xx xx xx xx xx xx xx xx xx xx xx xx xx xx xx xx xx>
+    #
+    sha1 = [x for x in lines if "sha1 : " in x]
+    if len(sha1) == 0:
+      continue
+    else:
+      sha1 = sha1[0]
+      sha1 = sha1.strip()
+      sha1 = sha1.replace("sha1 : ", "")
+      sha1 = sha1.replace("<", "")
+      sha1 = sha1.replace(">", "")
+      sha1 = sha1.replace(" ", "")
+      sha1 = sha1.upper()
+
+    # Extract label from line with format:
+    #
+    #    labl : "Foo cert name"
+    #
+    labl = [x for x in lines if "labl : " in x]
+    if len(labl) == 0:
+      continue
+    else:
+      labl = labl[0]
+      labl = labl.strip()
+      labl = labl.replace("labl : ", "")
+      labl = labl.replace("\"", "")
+
+    # Only add to dict if both sha1 and labl were found
+    label_sha1_map[labl] = sha1
+
+  # If 'identity' is specified find it or return an empty list
+  if identity:
+    if identity in label_sha1_map:
+      ids.append(label_sha1_map[identity])
+  else: # Otherwise return all values found
+    ids += label_sha1_map.values()
+
+  return ids
 
 def _find_codesign_identities(identity=None):
   """Finds code signing identities on the current system."""
@@ -156,6 +212,10 @@ def _find_codesign_identities(identity=None):
       groups = m.groupdict()
       id = groups["hash"]
       ids.append(id)
+
+  # Finds smartcard identities if present
+  ids += _find_smart_card_identities(identity)
+
   return ids
 
 
